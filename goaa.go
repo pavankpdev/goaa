@@ -1,7 +1,17 @@
 package goaa
 
-import "fmt"
+import (
+	"github.com/ethereum/go-ethereum/ethclient"
+)
 
-func Greet() {
-	fmt.Println("Hello from GoAA! An Account Abstraction (ERC-4337) package written in go")
+// CreateClient connects to an Ethereum node via the specified RPC endpoint
+// and returns an Ethereum client. It panics on connection errors.
+func CreateClient(rpc string) *ethclient.Client {
+	cl, err := ethclient.Dial(rpc)
+
+	if err != nil {
+		panic(err)
+	}
+
+	return cl
 }
