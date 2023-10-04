@@ -1,6 +1,4 @@
-# GoAA: Account Abstraction (ERC-4337) Package for Go
-
-## Description
+# GoAA: Account Abstraction Package for Go
 
 GoAA is a Go package that implements Account Abstraction (ERC-4337), allowing you to work with Ethereum accounts and transactions more efficiently. This package simplifies the interaction with Ethereum smart contracts and blockchain by providing easy-to-use functions and abstractions.
 
