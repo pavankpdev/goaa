@@ -42,17 +42,17 @@ type TargetParams struct {
 }
 
 type UOps struct {
-	Sender               string `json:"sender"`
-	Nonce                string `json:"nonce"`
-	InitCode             string `json:"initCode"`
-	CallData             string `json:"callData"`
-	Signature            string `json:"signature"`
-	CallGasLimit         string `json:"callGasLimit"`
-	VerificationGasLimit string `json:"verificationGasLimit"`
-	PreVerificationGas   string `json:"preVerificationGas"`
-	MaxFeePerGas         string `json:"maxFeePerGas"`
-	MaxPriorityFeePerGas string `json:"maxPriorityFeePerGas"`
-	PaymasterAndData     string `json:"paymasterAndData"`
+	Sender               string  `json:"sender"`
+	Nonce                string  `json:"nonce"`
+	InitCode             string  `json:"initCode"`
+	CallData             string  `json:"callData"`
+	Signature            *string `json:"signature,omitempty"`
+	CallGasLimit         string  `json:"callGasLimit"`
+	VerificationGasLimit string  `json:"verificationGasLimit"`
+	PreVerificationGas   string  `json:"preVerificationGas"`
+	MaxFeePerGas         string  `json:"maxFeePerGas"`
+	MaxPriorityFeePerGas string  `json:"maxPriorityFeePerGas"`
+	PaymasterAndData     string  `json:"paymasterAndData"`
 }
 
 type UserOperationTxnPayload struct {
@@ -174,11 +174,6 @@ func (sap *SmartAccountProvider) SendUserOpsTransaction(target TargetParams) (an
 
 	calldata := []byte(jsonStr)
 
-	signature, err := sap.SignMessage("Create Account")
-	if err != nil {
-		return 0, err
-	}
-
 	nonceInHex := strconv.FormatInt(int64(nonce), 16)
 
 	uo := UOps{
@@ -186,7 +181,6 @@ func (sap *SmartAccountProvider) SendUserOpsTransaction(target TargetParams) (an
 		Nonce:                "0x" + nonceInHex,
 		InitCode:             "0x",
 		CallData:             "0x" + hex.EncodeToString(calldata),
-		Signature:            signature,
 		CallGasLimit:         "0x2710",
 		VerificationGasLimit: "0x2710",
 		PreVerificationGas:   "0x402db0",
@@ -194,6 +188,25 @@ func (sap *SmartAccountProvider) SendUserOpsTransaction(target TargetParams) (an
 		MaxPriorityFeePerGas: "0x3812ed1a0",
 		PaymasterAndData:     "0x",
 	}
+
+	uopsHash := crypto.Keccak256Hash([]byte(uo.Sender), []byte(uo.Nonce), []byte(uo.InitCode), []byte(uo.CallData), []byte(uo.CallGasLimit), []byte(uo.VerificationGasLimit), []byte(uo.PreVerificationGas), []byte(uo.MaxFeePerGas), []byte(uo.MaxPriorityFeePerGas), []byte(uo.PaymasterAndData))
+
+	privateKey, err := crypto.HexToECDSA("<pvt key without 0x>")
+	if err != nil {
+		fmt.Println("Failed to sign the UOps struct:", err)
+		return 0, err
+	}
+
+	// Fix: This Signature here is invalid
+	signature, err := crypto.Sign(uopsHash.Bytes(), privateKey)
+	if err != nil {
+		fmt.Println("Failed to sign the UOps struct:", err)
+		return 0, err
+	}
+
+	var sog = "0x" + hex.EncodeToString(signature)
+	fmt.Println(sog)
+	uo.Signature = &sog
 
 	var uoArray []any
 	uoArray = append(uoArray, uo)

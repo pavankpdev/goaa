@@ -11,7 +11,7 @@ func main() {
 
 	const RPC = "https://polygon-mumbai.g.alchemy.com/v2/u-FhnHbTFL8OASxmdclXSWKS-YcypJzH"
 	const SmartAccountFactoryAddress = "0x9406Cc6185a346906296840746125a0E44976454" // https://docs.alchemy.com/docs/creating-a-smart-contract-account-and-sending-userops#1b-get-constants
-	const PrivateKey = "0x1934c4fa3a8c7130c55b4b2933657b584102c02e6fdc682394728822a714404e"
+	const PrivateKey = "<pvt key>"
 
 	eth := big.NewFloat(0.1)
 	wei := new(big.Float)
