@@ -189,20 +189,37 @@ func (sap *SmartAccountProvider) SendUserOpsTransaction(target TargetParams) (an
 		PaymasterAndData:     "0x",
 	}
 
-	uopsHash := crypto.Keccak256Hash([]byte(uo.Sender), []byte(uo.Nonce), []byte(uo.InitCode), []byte(uo.CallData), []byte(uo.CallGasLimit), []byte(uo.VerificationGasLimit), []byte(uo.PreVerificationGas), []byte(uo.MaxFeePerGas), []byte(uo.MaxPriorityFeePerGas), []byte(uo.PaymasterAndData))
+	//uopsHash := crypto.Keccak256Hash(
+	//	[]byte(uo.Sender),
+	//	[]byte(uo.Nonce),
+	//	[]byte(uo.InitCode),
+	//	[]byte(uo.CallData),
+	//	[]byte(uo.CallGasLimit),
+	//	[]byte(uo.VerificationGasLimit),
+	//	[]byte(uo.PreVerificationGas),
+	//	[]byte(uo.MaxFeePerGas),
+	//	[]byte(uo.MaxPriorityFeePerGas),
+	//	[]byte(uo.PaymasterAndData),
+	//)
 
-	privateKey, err := crypto.HexToECDSA("<pvt key without 0x>")
+	//uoBytes := []byte(uo.Sender + uo.Nonce + uo.InitCode + uo.CallData + uo.CallGasLimit + uo.VerificationGasLimit + uo.PreVerificationGas + uo.MaxFeePerGas + uo.MaxPriorityFeePerGas + uo.PaymasterAndData)
+
+	privateKey, err := crypto.HexToECDSA("1934c4fa3a8c7130c55b4b2933657b584102c02e6fdc682394728822a714404e")
 	if err != nil {
 		fmt.Println("Failed to sign the UOps struct:", err)
 		return 0, err
 	}
+
+	signatureParams := getUserOperationHash(uo, common.HexToAddress("0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789"), big.NewInt(80001))
 
 	// Fix: This Signature here is invalid
-	signature, err := crypto.Sign(uopsHash.Bytes(), privateKey)
+	signature, err := crypto.Sign(signatureParams.Bytes(), privateKey)
 	if err != nil {
 		fmt.Println("Failed to sign the UOps struct:", err)
 		return 0, err
 	}
+
+	fmt.Println("Signaturee", signature)
 
 	var sog = "0x" + hex.EncodeToString(signature)
 	fmt.Println(sog)
@@ -247,3 +264,40 @@ func (sap *SmartAccountProvider) SendUserOpsTransaction(target TargetParams) (an
 
 	// generate UO object
 }
+
+func getUserOperationHash(
+	uo UOps,
+	entryPointAddress common.Address,
+	chainId *big.Int,
+) common.Hash {
+	uoBytes := []byte(uo.Sender + uo.Nonce + uo.InitCode + uo.CallData + uo.CallGasLimit + uo.VerificationGasLimit + uo.PreVerificationGas + uo.MaxFeePerGas + uo.MaxPriorityFeePerGas + uo.PaymasterAndData)
+
+	hashBytes := crypto.Keccak256(uoBytes, entryPointAddress.Bytes(), chainId.Bytes())
+
+	var userOpHash common.Hash
+	copy(userOpHash[:], hashBytes[:common.HashLength])
+
+	return userOpHash
+}
+
+//
+//func packUO(request UOps) []byte {
+//	// Implement the packing logic for UserOperationRequest fields
+//	// In this example, we'll assume that you have some fields in UserOperationRequest
+//	// and pack them into a byte slice. You should customize this logic to match your request.
+//
+//	// Example: Packing three fields as a byte slice
+//	packedData := append([]byte{}, request.Field1...)
+//	packedData = append(packedData, request.Field2...)
+//	packedData = append(packedData, request.Field3...)
+//
+//	// Ensure the packed data is exactly 32 bytes long (if needed)
+//	if len(packedData) < 32 {
+//		padding := make([]byte, 32-len(packedData))
+//		packedData = append(packedData, padding...)
+//	} else if len(packedData) > 32 {
+//		packedData = packedData[:32] // Truncate if longer than 32 bytes
+//	}
+//
+//	return packedData
+//}
