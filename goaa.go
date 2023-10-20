@@ -2,15 +2,16 @@ package goaa
 
 import (
 	"context"
-	"encoding/hex"
+	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	entrypoint "github.com/pavankpdev/goaa/gen"
 	factory "github.com/pavankpdev/goaa/gen"
+	utils "github.com/pavankpdev/goaa/utils"
 	"io"
 	"math/big"
 	"net/http"
@@ -28,11 +29,10 @@ type SmartAccountProviderParams struct {
 
 // SmartAccountProvider is a struct that manages interaction with Ethereum smart contracts.
 type SmartAccountProvider struct {
-	Client      *ethclient.Client      // Ethereum client for interacting with the blockchain
-	Owner       common.Address         // Ethereum address of the owner
-	SAFactory   *factory.Factory       // Smart account factory contract instance
-	EntryPoint  *entrypoint.EntryPoint // Smart account factory contract instance
-	SignMessage func(message string) (string, error)
+	Client     *ethclient.Client      // Ethereum client for interacting with the blockchain
+	Owner      common.Address         // Ethereum address of the owner
+	SAFactory  *factory.Factory       // Smart account factory contract instance
+	EntryPoint *entrypoint.EntryPoint // Smart account factory contract instance
 }
 
 type TargetParams struct {
@@ -42,17 +42,17 @@ type TargetParams struct {
 }
 
 type UOps struct {
-	Sender               string  `json:"sender"`
-	Nonce                string  `json:"nonce"`
-	InitCode             string  `json:"initCode"`
-	CallData             string  `json:"callData"`
-	Signature            *string `json:"signature,omitempty"`
-	CallGasLimit         string  `json:"callGasLimit"`
-	VerificationGasLimit string  `json:"verificationGasLimit"`
-	PreVerificationGas   string  `json:"preVerificationGas"`
-	MaxFeePerGas         string  `json:"maxFeePerGas"`
-	MaxPriorityFeePerGas string  `json:"maxPriorityFeePerGas"`
-	PaymasterAndData     string  `json:"paymasterAndData"`
+	Sender               common.Address `json:"sender"`
+	Nonce                string         `json:"nonce"`
+	InitCode             string         `json:"initCode"`
+	CallData             string         `json:"callData"`
+	Signature            *common.Hash   `json:"signature,omitempty"`
+	CallGasLimit         string         `json:"callGasLimit"`
+	VerificationGasLimit string         `json:"verificationGasLimit"`
+	PreVerificationGas   string         `json:"preVerificationGas"`
+	MaxFeePerGas         string         `json:"maxFeePerGas"`
+	MaxPriorityFeePerGas string         `json:"maxPriorityFeePerGas"`
+	PaymasterAndData     string         `json:"paymasterAndData"`
 }
 
 type UserOperationTxnPayload struct {
@@ -90,32 +90,32 @@ func NewSmartAccountProvider(params SmartAccountProviderParams) (*SmartAccountPr
 		Owner:      owner,
 		SAFactory:  fac,
 		EntryPoint: ep,
-		SignMessage: func(message string) (string, error) {
-			signature, err := _signMessage(message, params.OwnerPrivateKey)
-			if err != nil {
-				return "", err
-			}
-
-			return signature, nil
-		},
 	}, nil
 }
 
-func _signMessage(dataToSign string, privateKeyHex string) (string, error) {
-	privateKey, err := crypto.HexToECDSA(privateKeyHex[2:])
+func (sap *SmartAccountProvider) signMessage(dataToSign []byte, privateKey *ecdsa.PrivateKey) (common.Hash, error) {
+	nonce, err := sap.Client.PendingNonceAt(context.Background(), sap.Owner)
 	if err != nil {
-		return "", err
+		return common.Hash{}, err
 	}
 
-	data := []byte(dataToSign)
-	hash := crypto.Keccak256Hash(data)
+	to := common.HexToAddress("0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789")
+	tx := types.NewTx(&types.AccessListTx{
+		Nonce:    nonce,
+		GasPrice: big.NewInt(20000000000),
+		Gas:      uint64(21000),
+		To:       &to,
+		Value:    big.NewInt(1000000000000000000),
+		Data:     dataToSign,
+	})
 
-	signature, err := crypto.Sign(hash.Bytes(), privateKey)
+	signature, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(80001)), privateKey)
+
 	if err != nil {
-		return "", err
+		return common.Hash{}, err
 	}
 
-	return hexutil.Encode(signature), nil
+	return signature.Hash(), nil
 
 }
 
@@ -165,8 +165,6 @@ func (sap *SmartAccountProvider) SendUserOpsTransaction(target TargetParams) (an
 		return 0, err
 	}
 
-	fmt.Println(sender)
-
 	jsonStr, err := json.Marshal(target)
 	if err != nil {
 		return 0, err
@@ -176,33 +174,7 @@ func (sap *SmartAccountProvider) SendUserOpsTransaction(target TargetParams) (an
 
 	nonceInHex := strconv.FormatInt(int64(nonce), 16)
 
-	uo := UOps{
-		Sender:               "0xCeFc6b95c885D17E3c328f57F24b13E3EE82Aec2",
-		Nonce:                "0x" + nonceInHex,
-		InitCode:             "0x",
-		CallData:             "0x" + hex.EncodeToString(calldata),
-		CallGasLimit:         "0x2710",
-		VerificationGasLimit: "0x2710",
-		PreVerificationGas:   "0x402db0",
-		MaxFeePerGas:         "0x17190c894e",
-		MaxPriorityFeePerGas: "0x3812ed1a0",
-		PaymasterAndData:     "0x",
-	}
-
-	//uopsHash := crypto.Keccak256Hash(
-	//	[]byte(uo.Sender),
-	//	[]byte(uo.Nonce),
-	//	[]byte(uo.InitCode),
-	//	[]byte(uo.CallData),
-	//	[]byte(uo.CallGasLimit),
-	//	[]byte(uo.VerificationGasLimit),
-	//	[]byte(uo.PreVerificationGas),
-	//	[]byte(uo.MaxFeePerGas),
-	//	[]byte(uo.MaxPriorityFeePerGas),
-	//	[]byte(uo.PaymasterAndData),
-	//)
-
-	//uoBytes := []byte(uo.Sender + uo.Nonce + uo.InitCode + uo.CallData + uo.CallGasLimit + uo.VerificationGasLimit + uo.PreVerificationGas + uo.MaxFeePerGas + uo.MaxPriorityFeePerGas + uo.PaymasterAndData)
+	uo := utils.BuildUserOp(sender, nonceInHex, calldata)
 
 	privateKey, err := crypto.HexToECDSA("1934c4fa3a8c7130c55b4b2933657b584102c02e6fdc682394728822a714404e")
 	if err != nil {
@@ -210,25 +182,18 @@ func (sap *SmartAccountProvider) SendUserOpsTransaction(target TargetParams) (an
 		return 0, err
 	}
 
-	signatureParams := getUserOperationHash(uo, common.HexToAddress("0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789"), big.NewInt(80001))
+	signature, err := sap.signMessage(calldata, privateKey)
 
-	// Fix: This Signature here is invalid
-	signature, err := crypto.Sign(signatureParams.Bytes(), privateKey)
 	if err != nil {
 		fmt.Println("Failed to sign the UOps struct:", err)
 		return 0, err
 	}
 
-	fmt.Println("Signaturee", signature)
-
-	var sog = "0x" + hex.EncodeToString(signature)
-	fmt.Println(sog)
-	uo.Signature = &sog
+	uo.Signature = &signature
 
 	var uoArray []any
 	uoArray = append(uoArray, uo)
 	uoArray = append(uoArray, "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789")
-	fmt.Println(uoArray)
 
 	bodyPayload, err := json.Marshal(UserOperationTxnPayload{
 		Id:      1,
@@ -236,13 +201,10 @@ func (sap *SmartAccountProvider) SendUserOpsTransaction(target TargetParams) (an
 		Method:  "eth_sendUserOperation",
 		Params:  uoArray,
 	})
+
 	if err != nil {
 		return 0, err
 	}
-
-	fmt.Println(string(bodyPayload))
-
-	//res, err := sap.EntryPoint.HandleOps(nil, uoArray, sap.Owner)
 
 	url := "https://polygon-mumbai.g.alchemy.com/v2/u-FhnHbTFL8OASxmdclXSWKS-YcypJzH"
 
@@ -260,44 +222,4 @@ func (sap *SmartAccountProvider) SendUserOpsTransaction(target TargetParams) (an
 
 	return string(body), nil
 
-	// Create target bytes
-
-	// generate UO object
 }
-
-func getUserOperationHash(
-	uo UOps,
-	entryPointAddress common.Address,
-	chainId *big.Int,
-) common.Hash {
-	uoBytes := []byte(uo.Sender + uo.Nonce + uo.InitCode + uo.CallData + uo.CallGasLimit + uo.VerificationGasLimit + uo.PreVerificationGas + uo.MaxFeePerGas + uo.MaxPriorityFeePerGas + uo.PaymasterAndData)
-
-	hashBytes := crypto.Keccak256(uoBytes, entryPointAddress.Bytes(), chainId.Bytes())
-
-	var userOpHash common.Hash
-	copy(userOpHash[:], hashBytes[:common.HashLength])
-
-	return userOpHash
-}
-
-//
-//func packUO(request UOps) []byte {
-//	// Implement the packing logic for UserOperationRequest fields
-//	// In this example, we'll assume that you have some fields in UserOperationRequest
-//	// and pack them into a byte slice. You should customize this logic to match your request.
-//
-//	// Example: Packing three fields as a byte slice
-//	packedData := append([]byte{}, request.Field1...)
-//	packedData = append(packedData, request.Field2...)
-//	packedData = append(packedData, request.Field3...)
-//
-//	// Ensure the packed data is exactly 32 bytes long (if needed)
-//	if len(packedData) < 32 {
-//		padding := make([]byte, 32-len(packedData))
-//		packedData = append(packedData, padding...)
-//	} else if len(packedData) > 32 {
-//		packedData = packedData[:32] // Truncate if longer than 32 bytes
-//	}
-//
-//	return packedData
-//}
