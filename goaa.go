@@ -3,6 +3,7 @@ package goaa
 import (
 	"context"
 	"crypto/ecdsa"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
@@ -11,56 +12,12 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	entrypoint "github.com/pavankpdev/goaa/gen"
 	factory "github.com/pavankpdev/goaa/gen"
-	utils "github.com/pavankpdev/goaa/utils"
 	"io"
 	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
 )
-
-// SmartAccountProviderParams stores the parameters required to initialize the SmartAccountProvider.
-type SmartAccountProviderParams struct {
-	OwnerPrivateKey            string // The private key of the Ethereum account
-	RPC                        string // The RPC endpoint for the Ethereum node
-	EntryPointAddress          string // The address of the entry point contract
-	SmartAccountFactoryAddress string // The address of the smart account factory contract
-}
-
-// SmartAccountProvider is a struct that manages interaction with Ethereum smart contracts.
-type SmartAccountProvider struct {
-	Client     *ethclient.Client      // Ethereum client for interacting with the blockchain
-	Owner      common.Address         // Ethereum address of the owner
-	SAFactory  *factory.Factory       // Smart account factory contract instance
-	EntryPoint *entrypoint.EntryPoint // Smart account factory contract instance
-}
-
-type TargetParams struct {
-	Target string
-	Data   string
-	Value  string
-}
-
-type UOps struct {
-	Sender               common.Address `json:"sender"`
-	Nonce                string         `json:"nonce"`
-	InitCode             string         `json:"initCode"`
-	CallData             string         `json:"callData"`
-	Signature            *common.Hash   `json:"signature,omitempty"`
-	CallGasLimit         string         `json:"callGasLimit"`
-	VerificationGasLimit string         `json:"verificationGasLimit"`
-	PreVerificationGas   string         `json:"preVerificationGas"`
-	MaxFeePerGas         string         `json:"maxFeePerGas"`
-	MaxPriorityFeePerGas string         `json:"maxPriorityFeePerGas"`
-	PaymasterAndData     string         `json:"paymasterAndData"`
-}
-
-type UserOperationTxnPayload struct {
-	Id      int64  `json:"id"`
-	Jsonrpc string `json:"jsonrpc"`
-	Method  string `json:"method"`
-	Params  []any  `json:"params"`
-}
 
 // NewSmartAccountProvider creates a new instance of SmartAccountProvider with the provided parameters.
 // It initializes the Ethereum client, owner's address, and the smart account factory contract.
@@ -85,11 +42,18 @@ func NewSmartAccountProvider(params SmartAccountProviderParams) (*SmartAccountPr
 		return nil, err
 	}
 
+	contracts := &ContractAddressParams{
+		factory:    params.SmartAccountFactoryAddress,
+		entrypoint: params.EntryPointAddress,
+	}
+
 	return &SmartAccountProvider{
 		Client:     client,
 		Owner:      owner,
 		SAFactory:  fac,
 		EntryPoint: ep,
+		PrivateKey: params.OwnerPrivateKey,
+		Contracts:  contracts,
 	}, nil
 }
 
@@ -99,7 +63,7 @@ func (sap *SmartAccountProvider) signMessage(dataToSign []byte, privateKey *ecds
 		return common.Hash{}, err
 	}
 
-	to := common.HexToAddress("0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789")
+	to := common.HexToAddress(sap.Contracts.entrypoint)
 	tx := types.NewTx(&types.AccessListTx{
 		Nonce:    nonce,
 		GasPrice: big.NewInt(20000000000),
@@ -153,6 +117,21 @@ func (sap *SmartAccountProvider) GetSmartAccountAddress(salt int64) (common.Addr
 	return address, nil
 }
 
+func buildUserOp(sender common.Address, nonce string, calldata []byte) UOps {
+	return UOps{
+		Sender:               sender,
+		Nonce:                "0x" + nonce,
+		InitCode:             "0x",
+		CallData:             "0x" + hex.EncodeToString(calldata),
+		CallGasLimit:         "0x2710",
+		VerificationGasLimit: "0x2710",
+		PreVerificationGas:   "0x402db0",
+		MaxFeePerGas:         "0x17190c894e",
+		MaxPriorityFeePerGas: "0x3812ed1a0",
+		PaymasterAndData:     "0x",
+	}
+}
+
 func (sap *SmartAccountProvider) SendUserOpsTransaction(target TargetParams) (any, error) {
 	// Nonce
 	nonce, err := sap.Client.PendingNonceAt(context.Background(), sap.Owner)
@@ -165,18 +144,16 @@ func (sap *SmartAccountProvider) SendUserOpsTransaction(target TargetParams) (an
 		return 0, err
 	}
 
-	jsonStr, err := json.Marshal(target)
+	calldata, err := json.Marshal(target)
 	if err != nil {
 		return 0, err
 	}
 
-	calldata := []byte(jsonStr)
-
 	nonceInHex := strconv.FormatInt(int64(nonce), 16)
 
-	uo := utils.BuildUserOp(sender, nonceInHex, calldata)
+	uo := buildUserOp(sender, nonceInHex, calldata)
 
-	privateKey, err := crypto.HexToECDSA("1934c4fa3a8c7130c55b4b2933657b584102c02e6fdc682394728822a714404e")
+	privateKey, err := crypto.HexToECDSA(sap.PrivateKey)
 	if err != nil {
 		fmt.Println("Failed to sign the UOps struct:", err)
 		return 0, err
@@ -193,7 +170,7 @@ func (sap *SmartAccountProvider) SendUserOpsTransaction(target TargetParams) (an
 
 	var uoArray []any
 	uoArray = append(uoArray, uo)
-	uoArray = append(uoArray, "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789")
+	uoArray = append(uoArray, sap.Contracts.entrypoint)
 
 	bodyPayload, err := json.Marshal(UserOperationTxnPayload{
 		Id:      1,
@@ -217,8 +194,8 @@ func (sap *SmartAccountProvider) SendUserOpsTransaction(target TargetParams) (an
 
 	res, _ := http.DefaultClient.Do(req)
 
-	defer res.Body.Close()
 	body, _ := io.ReadAll(res.Body)
+	defer res.Body.Close()
 
 	return string(body), nil
 
